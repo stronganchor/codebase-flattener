@@ -89,7 +89,7 @@ function cbf_admin_page() {
 
                 <div class="cbf-section">
                     <label>File Extensions to Exclude:</label>
-                    <input type="text" id="cbf-extensions" value="" />
+                    <input type="text" id="cbf-extensions" value=".code-workspace,.jpg,.svg,.webp,.mp3" />
                     <small>Comma-separated list (e.g., .log,.tmp,.cache) - leave empty to include all</small>
                 </div>
 
