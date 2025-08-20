@@ -1,27 +1,40 @@
 jQuery(document).ready(function($) {
+    // ---------- State ----------
     let repoTree = [];
     let selectedFiles = new Set();
     let fileContents = {};
     let currentRepo = '';
+    let pathToMeta = new Map(); // path -> { sha, size }
 
-    // Load recent repos on page load
+    // ---------- Constants ----------
+    const CACHE_NS = 'cbf_cache_v1';
+
+    // ---------- Boot ----------
     loadRecentRepos();
 
-    // Event handlers
+    // ---------- Event handlers ----------
     $('#cbf-load-repo').on('click', loadRepository);
     $('#cbf-select-all').on('click', selectAllFiles);
     $('#cbf-deselect-all').on('click', deselectAllFiles);
     $('#cbf-fetch-selected').on('click', fetchSelectedFiles);
     $('#cbf-generate-prompt').on('click', generatePrompt);
     $('#cbf-copy-prompt').on('click', copyToClipboard);
+
     $('#cbf-recent-repos').on('change', function() {
         const selectedRepo = $(this).val();
         if (selectedRepo) {
             $('#cbf-repo-url').val(selectedRepo);
-            loadRepository(); // Automatically load the repository
+            loadRepository();
         }
     });
 
+    // Inject a non-intrusive feedback badge next to the fetch button
+    const $fetchBtn = $('#cbf-fetch-selected');
+    if (!$('#cbf-fetch-feedback').length) {
+        $('<span id="cbf-fetch-feedback" class="cbf-badge" aria-live="polite"></span>').insertAfter($fetchBtn);
+    }
+
+    // ---------- Repository loading ----------
     function loadRepository() {
         const repoUrl = $('#cbf-repo-url').val().trim();
         const branch = $('#cbf-branch').val().trim();
@@ -37,6 +50,9 @@ jQuery(document).ready(function($) {
         $('#cbf-file-tree').empty();
         selectedFiles.clear();
         fileContents = {};
+        pathToMeta.clear();
+        clearFetchFeedback();
+        setButtonBusy($fetchBtn, false, 'Fetch Selected Files');
 
         $.post(cbf_ajax.ajax_url, {
             action: 'cbf_github_api',
@@ -50,6 +66,7 @@ jQuery(document).ready(function($) {
             if (response.success) {
                 repoTree = response.data.tree || [];
                 displayFileTree();
+                markCachedBadges(); // show which files are already cached & current
                 saveToRecent(repoUrl);
             } else {
                 alert('Error: ' + response.data);
@@ -63,29 +80,25 @@ jQuery(document).ready(function($) {
         });
     }
 
-    // Helpers for robust filtering
+    // ---------- Inputs parsing helpers ----------
     function parseExtensionsInput() {
-        // Accept entries with or without dot; case-insensitive; allow "*" or "all" to include everything
         let raw = ($('#cbf-extensions').val() || '')
             .split(',')
             .map(e => e.trim().toLowerCase())
             .filter(Boolean);
-
         const includeAll = raw.length === 0 || raw.includes('*') || raw.includes('all');
         if (includeAll) return { includeAll: true, exts: null };
-
         const exts = raw.map(e => e.startsWith('.') ? e : ('.' + e));
         return { includeAll: false, exts: new Set(exts) };
     }
 
     function getLowerExt(fileName) {
         const lastDot = fileName.lastIndexOf('.');
-        if (lastDot <= 0 || lastDot === fileName.length - 1) return ''; // no ext or trailing dot
+        if (lastDot <= 0 || lastDot === fileName.length - 1) return '';
         return fileName.slice(lastDot).toLowerCase();
     }
 
     function parseIgnoreDirsInput() {
-        // Match by path segment, not substring
         return new Set(
             ($('#cbf-ignore-dirs').val() || '')
                 .split(',')
@@ -96,106 +109,86 @@ jQuery(document).ready(function($) {
 
     function pathContainsIgnoredDir(pathLower, ignoreSet) {
         if (ignoreSet.size === 0) return false;
-        // Split into segments and see if any equals an ignored dir
         const segments = pathLower.split('/');
-        for (let seg of segments) {
-            if (ignoreSet.has(seg)) return true;
-        }
+        for (let seg of segments) if (ignoreSet.has(seg)) return true;
         return false;
     }
 
-    // Display file tree with checkboxes
+    // ---------- File tree ----------
     function displayFileTree() {
-        const excludeExtensions = $('#cbf-extensions').val().split(',').map(e => e.trim()).filter(e => e);
-        const ignoreDirs = $('#cbf-ignore-dirs').val().split(',').map(d => d.trim().toLowerCase());
-    
+        const extCfg = parseExtensionsInput();
+        const ignoreSet = parseIgnoreDirsInput();
+
         const $tree = $('#cbf-file-tree');
         $tree.empty();
-    
-        // Create folder structure
+
         const folderStructure = { _files: [], _folders: {} };
-    
-        console.log('Processing repoTree:', repoTree);
-    
+
         repoTree.forEach(item => {
             if (item.type !== 'blob') return;
-    
+
             const parts = item.path.split('/');
             const fileName = parts[parts.length - 1];
-            const ext = '.' + fileName.split('.').pop();
-    
-            console.log('Processing file:', item.path, 'Parts:', parts);
-    
-            // Check if should ignore based on directory
-            let shouldIgnore = false;
-            for (let dir of ignoreDirs) {
-                if (item.path.toLowerCase().includes(dir + '/')) {
-                    shouldIgnore = true;
-                    break;
-                }
+            const ext = getLowerExt(fileName);
+            const pathLower = item.path.toLowerCase();
+
+            if (pathContainsIgnoredDir(pathLower, ignoreSet)) return;
+
+            if (!extCfg.includeAll) {
+                if (extCfg.exts.has(ext)) return; // exclude listed exts
             }
-    
-            if (shouldIgnore) {
-                console.log('Ignoring file:', item.path);
-                return;
-            }
-    
-            // Check if should exclude based on extension
-            if (excludeExtensions.length > 0 && excludeExtensions.includes(ext)) {
-                console.log('Excluding file due to extension:', item.path, ext);
-                return;
-            }
-    
+
+            // Remember meta for caching/validation
+            pathToMeta.set(item.path, { sha: item.sha, size: item.size });
+
             // Build folder structure
             let current = folderStructure;
-    
-            // Navigate to the correct folder (all parts except the filename)
             for (let i = 0; i < parts.length - 1; i++) {
                 if (!current._folders[parts[i]]) {
                     current._folders[parts[i]] = { _files: [], _folders: {} };
                 }
                 current = current._folders[parts[i]];
             }
-    
-            // Add the file to the current folder
+
             current._files.push({
                 name: fileName,
                 path: item.path,
-                size: item.size
+                size: item.size,
+                sha: item.sha
             });
         });
-    
-        console.log('Final folder structure:', folderStructure);
-    
-        // Render tree - handle root files first
+
+        // Root files
         if (folderStructure._files.length > 0) {
-            folderStructure._files.sort((a, b) => a.name.localeCompare(b.name)).forEach(file => {
-                const $file = $(`<div class="cbf-file" style="margin-left: 0px;">
-                    <label>
-                        <input type="checkbox" data-path="${file.path}" data-size="${file.size}">
-                        <span>📄 ${file.name}</span>
-                        <small>(${formatFileSize(file.size)})</small>
-                    </label>
-                </div>`);
-                $tree.append($file);
-            });
+            folderStructure._files
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .forEach(file => {
+                    const $file = $(`
+                        <div class="cbf-file" style="margin-left: 0px;">
+                            <label title="${file.path}">
+                                <input type="checkbox" data-path="${file.path}" data-size="${file.size}" data-sha="${file.sha}">
+                                <span>📄 ${file.name}</span>
+                                <small>(${formatFileSize(file.size)})</small>
+                                <span class="cbf-file-status" data-path="${file.path}" aria-hidden="true"></span>
+                            </label>
+                        </div>
+                    `);
+                    $tree.append($file);
+                });
         }
-    
-        // Then render folders
+
         renderFolderStructure(folderStructure._folders, $tree, 0);
-    
-        // Add checkbox change handler (using event delegation)
+
+        // Event delegation for selection
         $tree.off('change').on('change', 'input[type="checkbox"]', function() {
             const filePath = $(this).data('path');
-            const fileSize = $(this).data('size');
-    
             if ($(this).prop('checked')) {
                 selectedFiles.add(filePath);
             } else {
                 selectedFiles.delete(filePath);
                 delete fileContents[filePath];
+                setFileStatus(filePath, ''); // clear status when deselected
             }
-    
             updateTokenCount();
         });
     }
@@ -204,12 +197,12 @@ jQuery(document).ready(function($) {
         Object.keys(structure).sort().forEach(folderName => {
             const folder = structure[folderName];
 
-            const $folder = $(
-                `<div class="cbf-folder" style="margin-left: ${indent}px;">
+            const $folder = $(`
+                <div class="cbf-folder" style="margin-left: ${indent}px;">
                     <span class="cbf-folder-name">📁 ${folderName}</span>
                     <div class="cbf-folder-contents"></div>
-                </div>`
-            );
+                </div>
+            `);
 
             $container.append($folder);
             const $contents = $folder.find('.cbf-folder-contents');
@@ -218,15 +211,16 @@ jQuery(document).ready(function($) {
                 folder._files
                     .sort((a, b) => a.name.localeCompare(b.name))
                     .forEach(file => {
-                        const $file = $(
-                            `<div class="cbf-file" style="margin-left: ${indent + 20}px;">
+                        const $file = $(`
+                            <div class="cbf-file" style="margin-left: ${indent + 20}px;">
                                 <label title="${file.path}">
-                                    <input type="checkbox" data-path="${file.path}" data-size="${file.size}">
+                                    <input type="checkbox" data-path="${file.path}" data-size="${file.size}" data-sha="${file.sha}">
                                     <span>📄 ${file.name}</span>
                                     <small>(${formatFileSize(file.size)})</small>
+                                    <span class="cbf-file-status" data-path="${file.path}" aria-hidden="true"></span>
                                 </label>
-                            </div>`
-                        );
+                            </div>
+                        `);
                         $contents.append($file);
                     });
             }
@@ -248,7 +242,7 @@ jQuery(document).ready(function($) {
         return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
-    // Select/Deselect all without relying on firing thousands of change events
+    // ---------- Select / Deselect ----------
     function selectAllFiles() {
         const $boxes = $('#cbf-file-tree input[type="checkbox"]');
         selectedFiles.clear();
@@ -265,10 +259,11 @@ jQuery(document).ready(function($) {
         $boxes.prop('checked', false);
         selectedFiles.clear();
         fileContents = {};
+        $('#cbf-file-tree .cbf-file-status').removeClass('is-fetched is-cached is-error').attr('title', '');
         updateTokenCount();
     }
 
-    // Fetch content for selected files
+    // ---------- Fetch + Cache ----------
     async function fetchSelectedFiles() {
         if (selectedFiles.size === 0) {
             alert('No files selected');
@@ -277,17 +272,36 @@ jQuery(document).ready(function($) {
 
         const token = $('#cbf-github-token').val().trim();
         const branch = $('#cbf-branch').val().trim();
+        const repoKey = getRepoKey(currentRepo, branch);
 
-        $('#cbf-fetch-selected').prop('disabled', true).text('Fetching...');
+        setButtonBusy($fetchBtn, true, 'Fetching...');
+        clearFetchFeedback();
 
         let fetchedCount = 0;
         const totalFiles = selectedFiles.size;
 
+        // Progress update helper
+        const updateProgress = () => {
+            $fetchBtn.text(`Fetching... (${fetchedCount}/${totalFiles})`);
+        };
+
         for (let filePath of selectedFiles) {
-            if (fileContents[filePath]) {
+            const meta = pathToMeta.get(filePath) || {};
+            const expectedSha = meta.sha || ($(`#cbf-file-tree input[data-path="${cssEscape(filePath)}"]`).data('sha') || null);
+
+            // Try cache first
+            const cached = getCacheEntry(repoKey, filePath);
+            if (cached && cached.sha && cached.sha === expectedSha && typeof cached.content === 'string') {
+                fileContents[filePath] = cached.content;
+                setFileStatus(filePath, 'cached');
                 fetchedCount++;
-                $('#cbf-fetch-selected').text(`Fetching... (${fetchedCount}/${totalFiles})`);
+                updateProgress();
                 continue;
+            }
+
+            // If cache exists but SHA differs, drop it
+            if (cached && cached.sha && cached.sha !== expectedSha) {
+                removeCacheEntry(repoKey, filePath);
             }
 
             try {
@@ -304,24 +318,36 @@ jQuery(document).ready(function($) {
                 if (response && response.success && response.data && response.data.download_url) {
                     const content = await $.get(response.data.download_url);
                     fileContents[filePath] = content;
+                    setCacheEntry(repoKey, filePath, {
+                        sha: expectedSha || null,
+                        content,
+                        fetchedAt: Date.now()
+                    });
+                    setFileStatus(filePath, 'fetched');
+                } else {
+                    setFileStatus(filePath, 'error', 'Failed to get download URL');
                 }
-                fetchedCount++;
-                $('#cbf-fetch-selected').text(`Fetching... (${fetchedCount}/${totalFiles})`);
             } catch (error) {
                 console.error(`Failed to fetch ${filePath}:`, error);
+                setFileStatus(filePath, 'error', 'Network or API error');
             }
+
+            fetchedCount++;
+            updateProgress();
         }
 
-        $('#cbf-fetch-selected').prop('disabled', false).text('Fetch Selected Files');
+        setButtonBusy($fetchBtn, false, 'Fetch Selected Files');
         updateTokenCount();
 
+        // Non-intrusive success message (no alerts)
         if (fetchedCount === totalFiles) {
-            alert(`Successfully fetched ${fetchedCount} files`);
+            setFetchFeedback(`Fetched ${fetchedCount} files ✓`, true);
         } else {
-            alert(`Fetched ${fetchedCount} of ${totalFiles} files`);
+            setFetchFeedback(`Fetched ${fetchedCount} of ${totalFiles} files`, false);
         }
     }
 
+    // ---------- Prompt generation / clipboard ----------
     function generatePrompt() {
         const customInstructions = $('#cbf-custom-instructions').val();
         const userQuery = $('#cbf-user-query').val();
@@ -367,6 +393,7 @@ jQuery(document).ready(function($) {
         setTimeout(() => $btn.text(originalText), 2000);
     }
 
+    // ---------- Token counting ----------
     function updateTokenCount() {
         let totalChars = 0;
 
@@ -382,13 +409,10 @@ jQuery(document).ready(function($) {
         $('#cbf-token-count').text(estimatedTokens.toLocaleString());
 
         const maxTokens = parseInt($('#cbf-max-tokens').val(), 10);
-        if (estimatedTokens > maxTokens) {
-            $('#cbf-token-count').css('color', 'red');
-        } else {
-            $('#cbf-token-count').css('color', 'green');
-        }
+        $('#cbf-token-count').css('color', estimatedTokens > maxTokens ? 'red' : 'green');
     }
 
+    // ---------- Recent repos ----------
     function loadRecentRepos() {
         $.post(cbf_ajax.ajax_url, {
             action: 'cbf_get_recent',
@@ -416,5 +440,110 @@ jQuery(document).ready(function($) {
                 loadRecentRepos();
             }
         });
+    }
+
+    // ---------- UI helpers ----------
+    function setButtonBusy($btn, busy, textWhenNotBusy) {
+        if (busy) {
+            $btn.prop('disabled', true);
+        } else {
+            $btn.prop('disabled', false);
+            $btn.text(textWhenNotBusy || $btn.text());
+        }
+    }
+
+    function setFetchFeedback(msg, success) {
+        const $fb = $('#cbf-fetch-feedback');
+        $fb.text(msg)
+           .removeClass('is-success is-error')
+           .addClass(success ? 'is-success' : 'is-error');
+        // Keep it visible; fade after a short delay
+        setTimeout(() => {
+            $fb.addClass('fade');
+        }, 2500);
+        setTimeout(() => {
+            clearFetchFeedback();
+        }, 5000);
+    }
+
+    function clearFetchFeedback() {
+        const $fb = $('#cbf-fetch-feedback');
+        $fb.text('').removeClass('is-success is-error fade');
+    }
+
+    function setFileStatus(path, status, titleMsg = '') {
+        const $badge = $(`.cbf-file-status[data-path="${cssEscape(path)}"]`);
+        $badge.removeClass('is-fetched is-cached is-error');
+        if (status === 'fetched') $badge.addClass('is-fetched').attr('title', 'Fetched');
+        else if (status === 'cached') $badge.addClass('is-cached').attr('title', 'Loaded from cache');
+        else if (status === 'error') $badge.addClass('is-error').attr('title', titleMsg || 'Error');
+        else $badge.attr('title', '');
+    }
+
+    function markCachedBadges() {
+        const branch = $('#cbf-branch').val().trim();
+        const repoKey = getRepoKey(currentRepo, branch);
+        $('#cbf-file-tree input[type="checkbox"]').each(function() {
+            const path = $(this).data('path');
+            const sha = $(this).data('sha') || null;
+            const cached = getCacheEntry(repoKey, path);
+            if (cached && cached.sha && cached.sha === sha) {
+                setFileStatus(path, 'cached');
+            }
+        });
+    }
+
+    // CSS.escape polyfill-ish for attribute selectors
+    function cssEscape(str) {
+        return String(str).replace(/("|'|\\|\.|\[|\]|:|\/)/g, '\\$1');
+    }
+
+    // ---------- Cache helpers (localStorage) ----------
+    function getRepoKey(repoUrl, branch) {
+        // https://github.com/owner/repo(.git)? -> owner/repo@branch
+        const m = (repoUrl || '').match(/github\.com\/([^\/]+)\/([^\/\?]+)/i);
+        if (!m) return (repoUrl || 'repo') + '@' + (branch || 'main');
+        const owner = m[1];
+        const repo = m[2].replace(/\.git$/i, '');
+        return `${owner}/${repo}@${branch}`;
+    }
+
+    function readCache() {
+        try {
+            const raw = localStorage.getItem(CACHE_NS);
+            if (!raw) return {};
+            return JSON.parse(raw) || {};
+        } catch {
+            return {};
+        }
+    }
+
+    function writeCache(obj) {
+        try {
+            localStorage.setItem(CACHE_NS, JSON.stringify(obj));
+        } catch (e) {
+            // Storage might be full—best-effort only
+            console.warn('Cache write failed:', e);
+        }
+    }
+
+    function getCacheEntry(repoKey, path) {
+        const all = readCache();
+        return all?.[repoKey]?.[path] || null;
+    }
+
+    function setCacheEntry(repoKey, path, entry) {
+        const all = readCache();
+        if (!all[repoKey]) all[repoKey] = {};
+        all[repoKey][path] = entry;
+        writeCache(all);
+    }
+
+    function removeCacheEntry(repoKey, path) {
+        const all = readCache();
+        if (all[repoKey] && all[repoKey][path]) {
+            delete all[repoKey][path];
+            writeCache(all);
+        }
     }
 });
