@@ -75,6 +75,12 @@ function cbf_admin_page() {
                     <input type="text" id="cbf-repo-url" placeholder="https://github.com/owner/repo" />
                     <button id="cbf-load-repo" class="button button-primary">Load Repository</button>
                 </div>
+                
+                <div class="cbf-section">
+                    <label for="cbf-max-tokens">Max Tokens (approximate):</label>
+                    <input type="number" id="cbf-max-tokens" value="128000" />
+                    <small>Estimated tokens: <span id="cbf-token-count">0</span></small>
+                </div>
 
                 <div class="cbf-section">
                     <label for="cbf-github-token">GitHub Token (optional, for private repos):</label>
@@ -97,12 +103,6 @@ function cbf_admin_page() {
                     <label>Folders to Ignore:</label>
                     <input type="text" id="cbf-ignore-dirs" value="node_modules,vendor,dist,build,.git,__pycache__,venv,env,getid3,media,languages,plugin-update-checker" />
                     <small>Comma-separated list</small>
-                </div>
-
-                <div class="cbf-section">
-                    <label for="cbf-max-tokens">Max Tokens (approximate):</label>
-                    <input type="number" id="cbf-max-tokens" value="128000" />
-                    <small>Estimated tokens: <span id="cbf-token-count">0</span></small>
                 </div>
             </div>
 
