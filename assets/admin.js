@@ -15,7 +15,11 @@ jQuery(document).ready(function($) {
     $('#cbf-generate-prompt').on('click', generatePrompt);
     $('#cbf-copy-prompt').on('click', copyToClipboard);
     $('#cbf-recent-repos').on('change', function() {
-        $('#cbf-repo-url').val($(this).val());
+        const selectedRepo = $(this).val();
+        if (selectedRepo) {
+            $('#cbf-repo-url').val(selectedRepo);
+            loadRepository(); // Automatically load the repository
+        }
     });
 
     function loadRepository() {
