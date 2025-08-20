@@ -109,6 +109,7 @@
     align-items: center;
     cursor: pointer;
     font-weight: normal;
+    gap: 6px;
 }
 
 .cbf-file input[type="checkbox"] {
@@ -117,8 +118,73 @@
 }
 
 .cbf-file small {
-    margin-left: 10px;
+    margin-left: 6px;
     color: #999;
+}
+
+/* Status badge next to each file */
+.cbf-file-status {
+    width: 1.1em;
+    height: 1.1em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    font-size: 0.9em;
+    line-height: 1;
+    margin-left: 6px;
+    border: 1px solid transparent;
+}
+
+.cbf-file-status.is-fetched {
+    color: #fff;
+    background: #00a32a; /* WP green */
+    border-color: #00a32a;
+}
+.cbf-file-status.is-fetched::before {
+    content: "✓";
+}
+
+.cbf-file-status.is-cached {
+    color: #fff;
+    background: #2271b1; /* WP blue: cached indicator */
+    border-color: #2271b1;
+}
+.cbf-file-status.is-cached::before {
+    content: "✓";
+}
+
+.cbf-file-status.is-error {
+    color: #fff;
+    background: #d63638; /* WP red */
+    border-color: #d63638;
+}
+.cbf-file-status.is-error::before {
+    content: "!";
+}
+
+/* Fetch feedback badge next to button */
+.cbf-badge {
+    margin-left: 10px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    border: 1px solid transparent;
+    vertical-align: middle;
+}
+.cbf-badge.is-success {
+    background: #e7f7ec;
+    border-color: #00a32a;
+    color: #135e1e;
+}
+.cbf-badge.is-error {
+    background: #fbeaea;
+    border-color: #d63638;
+    color: #8a2424;
+}
+.cbf-badge.fade {
+    opacity: 0.3;
+    transition: opacity 0.8s ease;
 }
 
 #cbf-output {
