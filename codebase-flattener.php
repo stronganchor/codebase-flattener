@@ -64,6 +64,13 @@ function cbf_admin_page() {
                 <h2>Repository Settings</h2>
 
                 <div class="cbf-section">
+                    <h3>Recent Repositories</h3>
+                    <select id="cbf-recent-repos" size="5">
+                        <!-- Populated by JS -->
+                    </select>
+                </div>
+
+                <div class="cbf-section">
                     <label for="cbf-repo-url">GitHub Repository URL:</label>
                     <input type="text" id="cbf-repo-url" placeholder="https://github.com/owner/repo" />
                     <button id="cbf-load-repo" class="button button-primary">Load Repository</button>
@@ -96,13 +103,6 @@ function cbf_admin_page() {
                     <label for="cbf-max-tokens">Max Tokens (approximate):</label>
                     <input type="number" id="cbf-max-tokens" value="128000" />
                     <small>Estimated tokens: <span id="cbf-token-count">0</span></small>
-                </div>
-
-                <div class="cbf-section">
-                    <h3>Recent Repositories</h3>
-                    <select id="cbf-recent-repos" size="5">
-                        <!-- Populated by JS -->
-                    </select>
                 </div>
             </div>
 
