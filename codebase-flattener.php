@@ -38,8 +38,12 @@ function cbf_enqueue_admin_scripts($hook) {
         return;
     }
 
-    wp_enqueue_script('cbf-admin-js', CBF_PLUGIN_URL . 'assets/admin.js', array('jquery'), '1.0.0', true);
-    wp_enqueue_style('cbf-admin-css', CBF_PLUGIN_URL . 'assets/admin.css', array(), '1.0.0');
+    // Use file modification time as version to bust cache
+    $js_version = filemtime(CBF_PLUGIN_PATH . 'assets/admin.js');
+    $css_version = filemtime(CBF_PLUGIN_PATH . 'assets/admin.css');
+
+    wp_enqueue_script('cbf-admin-js', CBF_PLUGIN_URL . 'assets/admin.js', array('jquery'), $js_version, true);
+    wp_enqueue_style('cbf-admin-css', CBF_PLUGIN_URL . 'assets/admin.css', array(), $css_version);
 
     // Localize script with AJAX URL and nonce
     wp_localize_script('cbf-admin-js', 'cbf_ajax', array(
