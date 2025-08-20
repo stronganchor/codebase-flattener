@@ -1,0 +1,185 @@
+.cbf-admin {
+    max-width: 100%;
+    margin: 20px 20px 20px 0;
+}
+
+.cbf-container {
+    display: flex;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.cbf-panel {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0,0,0,.04);
+    padding: 20px;
+    flex: 1;
+}
+
+.cbf-left {
+    flex: 0 0 25%;
+    max-width: 350px;
+}
+
+.cbf-middle {
+    flex: 0 0 35%;
+    overflow-y: auto;
+    max-height: 80vh;
+}
+
+.cbf-right {
+    flex: 1;
+}
+
+.cbf-section {
+    margin-bottom: 20px;
+}
+
+.cbf-section label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.cbf-section input[type="text"],
+.cbf-section input[type="password"],
+.cbf-section input[type="number"],
+.cbf-section select,
+.cbf-section textarea {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #8c8f94;
+    border-radius: 4px;
+}
+
+.cbf-section small {
+    display: block;
+    margin-top: 5px;
+    color: #646970;
+}
+
+.cbf-section select {
+    height: 120px;
+}
+
+.cbf-file-controls {
+    margin-bottom: 15px;
+    display: flex;
+    gap: 10px;
+}
+
+#cbf-file-tree {
+    border: 1px solid #ddd;
+    padding: 10px;
+    background: #f9f9f9;
+    border-radius: 4px;
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.cbf-folder {
+    margin-bottom: 5px;
+}
+
+.cbf-folder-name {
+    cursor: pointer;
+    font-weight: 600;
+    display: block;
+    padding: 5px;
+    background: #f0f0f0;
+    border-radius: 3px;
+    user-select: none;
+}
+
+.cbf-folder-name:hover {
+    background: #e0e0e0;
+}
+
+.cbf-folder-contents {
+    margin-top: 5px;
+}
+
+.cbf-file {
+    padding: 3px 0;
+}
+
+.cbf-file label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-weight: normal;
+}
+
+.cbf-file input[type="checkbox"] {
+    margin-right: 8px;
+    width: auto;
+}
+
+.cbf-file small {
+    margin-left: 10px;
+    color: #999;
+}
+
+#cbf-output {
+    width: 100%;
+    font-family: monospace;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+#cbf-loading {
+    text-align: center;
+    padding: 20px;
+    font-style: italic;
+    color: #666;
+}
+
+.button {
+    margin-right: 10px;
+}
+
+/* Responsive design for mobile */
+@media (max-width: 768px) {
+    .cbf-container {
+        flex-direction: column;
+    }
+
+    .cbf-left,
+    .cbf-middle,
+    .cbf-right {
+        max-width: 100%;
+        flex: 1;
+    }
+
+    .cbf-middle {
+        max-height: 400px;
+    }
+}
+
+/* Token count colors */
+#cbf-token-count {
+    font-weight: bold;
+}
+
+/* Improved button states */
+.button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* File tree improvements */
+.cbf-file:hover {
+    background: #f0f0f0;
+}
+
+.cbf-folder-contents {
+    display: block;
+}
+
+/* Copy button feedback */
+#cbf-copy-prompt.copied {
+    background: #00a32a;
+    border-color: #00a32a;
+    color: white;
+}
