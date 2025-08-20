@@ -64,20 +64,20 @@ jQuery(document).ready(function($) {
     function displayFileTree() {
         const extensions = $('#cbf-extensions').val().split(',').map(e => e.trim());
         const ignoreDirs = $('#cbf-ignore-dirs').val().split(',').map(d => d.trim().toLowerCase());
-
+    
         const $tree = $('#cbf-file-tree');
         $tree.empty();
-
+    
         // Create folder structure
-        const folderStructure = {};
-
+        const folderStructure = { _files: [], _folders: {} };
+    
         repoTree.forEach(item => {
             if (item.type !== 'blob') return;
-
+    
             const parts = item.path.split('/');
             const fileName = parts[parts.length - 1];
             const ext = '.' + fileName.split('.').pop();
-
+    
             // Check if should ignore
             let shouldIgnore = false;
             for (let dir of ignoreDirs) {
@@ -86,44 +86,58 @@ jQuery(document).ready(function($) {
                     break;
                 }
             }
-
+    
             if (shouldIgnore) return;
             if (!extensions.includes(ext)) return;
-
+    
             // Build folder structure
             let current = folderStructure;
+    
+            // Navigate to the correct folder (all parts except the filename)
             for (let i = 0; i < parts.length - 1; i++) {
-                if (!current[parts[i]]) {
-                    current[parts[i]] = { _files: [], _folders: {} };
+                if (!current._folders[parts[i]]) {
+                    current._folders[parts[i]] = { _files: [], _folders: {} };
                 }
-                current = current[parts[i]]._folders;
+                current = current._folders[parts[i]];
             }
-
-            if (!current[parts[parts.length - 2]]) {
-                current[parts[parts.length - 2]] = { _files: [], _folders: {} };
-            }
-            current[parts[parts.length - 2]]._files.push({
+    
+            // Add the file to the current folder
+            current._files.push({
                 name: fileName,
                 path: item.path,
                 size: item.size
             });
         });
-
-        // Render tree
-        renderFolderStructure(folderStructure, $tree, '');
-
+    
+        // Render tree - handle root files first
+        if (folderStructure._files.length > 0) {
+            folderStructure._files.sort((a, b) => a.name.localeCompare(b.name)).forEach(file => {
+                const $file = $(`<div class="cbf-file" style="margin-left: 0px;">
+                    <label>
+                        <input type="checkbox" data-path="${file.path}" data-size="${file.size}">
+                        <span>📄 ${file.name}</span>
+                        <small>(${formatFileSize(file.size)})</small>
+                    </label>
+                </div>`);
+                $tree.append($file);
+            });
+        }
+    
+        // Then render folders
+        renderFolderStructure(folderStructure._folders, $tree, 0);
+    
         // Add checkbox change handler
         $tree.on('change', 'input[type="checkbox"]', function() {
             const filePath = $(this).data('path');
             const fileSize = $(this).data('size');
-
+    
             if ($(this).prop('checked')) {
                 selectedFiles.add(filePath);
             } else {
                 selectedFiles.delete(filePath);
                 delete fileContents[filePath];
             }
-
+    
             updateTokenCount();
         });
     }
