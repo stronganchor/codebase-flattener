@@ -106,73 +106,96 @@ jQuery(document).ready(function($) {
 
     // Display file tree with checkboxes
     function displayFileTree() {
-        const { includeAll, exts } = parseExtensionsInput();
-        const ignoreSet = parseIgnoreDirsInput();
-
+        const excludeExtensions = $('#cbf-extensions').val().split(',').map(e => e.trim()).filter(e => e);
+        const ignoreDirs = $('#cbf-ignore-dirs').val().split(',').map(d => d.trim().toLowerCase());
+    
         const $tree = $('#cbf-file-tree');
         $tree.empty();
-
-        // Build folder structure
+    
+        // Create folder structure
         const folderStructure = { _files: [], _folders: {} };
-
+    
+        console.log('Processing repoTree:', repoTree);
+    
         repoTree.forEach(item => {
             if (item.type !== 'blob') return;
-
+    
             const parts = item.path.split('/');
             const fileName = parts[parts.length - 1];
-            const extLower = getLowerExt(fileName);
-
-            if (pathContainsIgnoredDir(item.path.toLowerCase(), ignoreSet)) return;
-            if (!includeAll && (!extLower || !exts.has(extLower))) return;
-
-            let current = folderStructure;
-            for (let i = 0; i < parts.length - 1; i++) {
-                const seg = parts[i];
-                if (!current._folders[seg]) {
-                    current._folders[seg] = { _files: [], _folders: {} };
+            const ext = '.' + fileName.split('.').pop();
+    
+            console.log('Processing file:', item.path, 'Parts:', parts);
+    
+            // Check if should ignore based on directory
+            let shouldIgnore = false;
+            for (let dir of ignoreDirs) {
+                if (item.path.toLowerCase().includes(dir + '/')) {
+                    shouldIgnore = true;
+                    break;
                 }
-                current = current._folders[seg];
             }
-
+    
+            if (shouldIgnore) {
+                console.log('Ignoring file:', item.path);
+                return;
+            }
+    
+            // Check if should exclude based on extension
+            if (excludeExtensions.length > 0 && excludeExtensions.includes(ext)) {
+                console.log('Excluding file due to extension:', item.path, ext);
+                return;
+            }
+    
+            // Build folder structure
+            let current = folderStructure;
+    
+            // Navigate to the correct folder (all parts except the filename)
+            for (let i = 0; i < parts.length - 1; i++) {
+                if (!current._folders[parts[i]]) {
+                    current._folders[parts[i]] = { _files: [], _folders: {} };
+                }
+                current = current._folders[parts[i]];
+            }
+    
+            // Add the file to the current folder
             current._files.push({
                 name: fileName,
                 path: item.path,
                 size: item.size
             });
         });
-
-        // Render root files
+    
+        console.log('Final folder structure:', folderStructure);
+    
+        // Render tree - handle root files first
         if (folderStructure._files.length > 0) {
-            folderStructure._files
-                .sort((a, b) => a.name.localeCompare(b.name))
-                .forEach(file => {
-                    const $file = $(
-                        `<div class="cbf-file" style="margin-left: 0px;">
-                            <label title="${file.path}">
-                                <input type="checkbox" data-path="${file.path}" data-size="${file.size}">
-                                <span>📄 ${file.name}</span>
-                                <small>(${formatFileSize(file.size)})</small>
-                            </label>
-                        </div>`
-                    );
-                    $tree.append($file);
-                });
+            folderStructure._files.sort((a, b) => a.name.localeCompare(b.name)).forEach(file => {
+                const $file = $(`<div class="cbf-file" style="margin-left: 0px;">
+                    <label>
+                        <input type="checkbox" data-path="${file.path}" data-size="${file.size}">
+                        <span>📄 ${file.name}</span>
+                        <small>(${formatFileSize(file.size)})</small>
+                    </label>
+                </div>`);
+                $tree.append($file);
+            });
         }
-
-        // Render folders
+    
+        // Then render folders
         renderFolderStructure(folderStructure._folders, $tree, 0);
-
-        // Ensure we do not stack multiple delegated handlers across reloads
-        $tree.off('change.cbf').on('change.cbf', 'input[type="checkbox"]', function() {
+    
+        // Add checkbox change handler (using event delegation)
+        $tree.off('change').on('change', 'input[type="checkbox"]', function() {
             const filePath = $(this).data('path');
-
+            const fileSize = $(this).data('size');
+    
             if ($(this).prop('checked')) {
                 selectedFiles.add(filePath);
             } else {
                 selectedFiles.delete(filePath);
                 delete fileContents[filePath];
             }
-
+    
             updateTokenCount();
         });
     }
