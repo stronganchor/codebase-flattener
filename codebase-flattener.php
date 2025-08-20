@@ -78,7 +78,7 @@ function cbf_admin_page() {
 
                 <div class="cbf-section">
                     <label for="cbf-github-token">GitHub Token (optional, for private repos):</label>
-                    <input type="password" id="cbf-github-token" placeholder="ghp_xxxxxxxxxxxx" />
+                    <input type="text" id="cbf-github-token" placeholder="ghp_xxxxxxxxxxxx" />
                     <small>Increases rate limit from 60 to 5000 requests/hour</small>
                 </div>
 
@@ -88,14 +88,14 @@ function cbf_admin_page() {
                 </div>
 
                 <div class="cbf-section">
-                    <label>File Extensions to Include:</label>
-                    <input type="text" id="cbf-extensions" value=".py,.js,.ts,.jsx,.tsx,.java,.cpp,.c,.go,.rb,.php,.vue,.svelte" />
-                    <small>Comma-separated list</small>
+                    <label>File Extensions to Exclude:</label>
+                    <input type="text" id="cbf-extensions" value="" />
+                    <small>Comma-separated list (e.g., .log,.tmp,.cache) - leave empty to include all</small>
                 </div>
 
                 <div class="cbf-section">
                     <label>Folders to Ignore:</label>
-                    <input type="text" id="cbf-ignore-dirs" value="node_modules,vendor,dist,build,.git,__pycache__,venv,env" />
+                    <input type="text" id="cbf-ignore-dirs" value="node_modules,vendor,dist,build,.git,__pycache__,venv,env,getid3,languages,plugin-update-checker" />
                     <small>Comma-separated list</small>
                 </div>
 
