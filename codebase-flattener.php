@@ -206,7 +206,8 @@ function cbf_handle_github_api() {
         'headers' => array(
             'Accept' => 'application/vnd.github.v3+json',
             'User-Agent' => 'WordPress-Codebase-Flattener'
-        )
+        ),
+        'timeout' => 30
     );
 
     if (!empty($token)) {
@@ -221,9 +222,27 @@ function cbf_handle_github_api() {
 
     $body = wp_remote_retrieve_body($response);
     $data = json_decode($body, true);
+    $http_code = wp_remote_retrieve_response_code($response);
 
-    if (isset($data['message'])) {
+    // Better error handling
+    if ($http_code === 404) {
+        $error_msg = "Repository or branch not found. ";
+        $error_msg .= "Please check: 1) Repository exists and is public, ";
+        $error_msg .= "2) Branch name is correct (try 'master' instead of 'main'), ";
+        $error_msg .= "3) If private, add a valid GitHub token.";
+        wp_send_json_error($error_msg);
+    } elseif ($http_code === 401) {
+        wp_send_json_error("Authentication failed. Check your GitHub token.");
+    } elseif ($http_code === 403) {
+        if (isset($data['message']) && strpos($data['message'], 'rate limit') !== false) {
+            wp_send_json_error("GitHub API rate limit exceeded. Please add a GitHub token or wait an hour.");
+        } else {
+            wp_send_json_error("Access forbidden. You may not have permission to access this repository.");
+        }
+    } elseif (isset($data['message'])) {
         wp_send_json_error($data['message']);
+    } elseif ($http_code >= 400) {
+        wp_send_json_error("GitHub API error (HTTP $http_code). Please try again.");
     }
 
     wp_send_json_success($data);
