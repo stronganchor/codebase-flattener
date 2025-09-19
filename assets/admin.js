@@ -495,7 +495,7 @@ jQuery(document).ready(function($) {
         const qsPart = querySnippet ? `-${querySnippet}` : '';
     
         const ts = timestampCompact();
-        const filename = `prompt-${qsPart}${slug}-${ts}.txt`;
+        const filename = `prompt${qsPart}-${slug}-${ts}.txt`;
     
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
