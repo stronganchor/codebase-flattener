@@ -484,11 +484,19 @@ jQuery(document).ready(function($) {
             return;
         }
         const branch = ($('#cbf-branch').val() || 'main').trim();
+    
+        // Existing repo/branch slug
         const slug = (getRepoKey(currentRepo, branch) || 'prompt')
             .replace('@', '-')
             .replace(/[^\w\-\.]+/g, '-');
+    
+        // NEW: include first few words of user query in filename
+        const querySnippet = getQuerySnippet(5, 48); // first 5 words, max ~48 chars
+        const qsPart = querySnippet ? `-${querySnippet}` : '';
+    
         const ts = timestampCompact();
-        const filename = `enhanced-prompt-${slug}-${ts}.txt`;
+        const filename = `enhanced-prompt-${slug}${qsPart}-${ts}.txt`;
+    
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -504,6 +512,30 @@ jQuery(document).ready(function($) {
         const d = new Date();
         const p = n => String(n).padStart(2, '0');
         return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
+    }
+
+    // Make a filesystem-safe slug
+    function makeSafeSlug(str, maxLen = 50) {
+        if (!str) return 'no-query';
+        let s = String(str)
+            .normalize('NFKD').replace(/[\u0300-\u036f]/g, '') // strip accents
+            .replace(/['"`]/g, '')                             // drop quotes
+            .replace(/[^\w\s-]/g, ' ')                         // non-word -> space
+            .trim()
+            .replace(/\s+/g, '-')                              // spaces -> hyphens
+            .toLowerCase()
+            .replace(/-+/g, '-')                               // collapse hyphens
+            .replace(/^[-_.]+|[-_.]+$/g, '');                  // trim punctuation
+        if (maxLen && s.length > maxLen) s = s.slice(0, maxLen).replace(/-+$/, '');
+        return s || 'no-query';
+    }
+    
+    // Get first N words from the query and slugify them
+    function getQuerySnippet(words = 5, maxLen = 50) {
+        const q = ($('#cbf-user-query').val() || '').trim();
+        if (!q) return '';
+        const first = q.split(/\s+/).slice(0, words).join(' ');
+        return makeSafeSlug(first, maxLen);
     }
 
     // ---------- Token counting ----------
