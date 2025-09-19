@@ -101,7 +101,7 @@ function cbf_admin_page() {
 
                 <div class="cbf-section">
                     <label>Folders to Ignore:</label>
-                    <input type="text" id="cbf-ignore-dirs" value="node_modules,vendor,dist,build,.git,__pycache__,venv,env,getid3,media,languages,plugin-update-checker" />
+                    <input type="text" id="cbf-ignore-dirs" value="node_modules,vendor,dist,build,.git,__pycache__,venv,env,getid3,media,iso-languages,languages,plugin-update-checker" />
                     <small>Comma-separated list</small>
                 </div>
             </div>
