@@ -19,6 +19,7 @@ jQuery(document).ready(function($) {
     $('#cbf-fetch-selected').on('click', fetchSelectedFiles);
     $('#cbf-generate-prompt').on('click', generatePrompt);
     $('#cbf-copy-prompt').on('click', copyToClipboard);
+    $('#cbf-download-txt').on('click', downloadTxt);
 
     $('#cbf-recent-repos').on('change', function() {
         const selectedRepo = $(this).val();
@@ -65,8 +66,11 @@ jQuery(document).ready(function($) {
         .done(function(response) {
             if (response.success) {
                 repoTree = response.data.tree || [];
-                displayFileTree();
-                markCachedBadges(); // show which files are already cached & current
+                displayFileTree();          // builds and binds the tree
+                markCachedBadges();         // show which files are already cached & current
+                // Auto-select everything by default
+                selectAllFiles();
+                syncAllFolderCheckboxes();
                 saveToRecent(repoUrl);
             } else {
                 alert('Error: ' + response.data);
@@ -134,8 +138,9 @@ jQuery(document).ready(function($) {
 
             if (pathContainsIgnoredDir(pathLower, ignoreSet)) return;
 
+            // Exclude listed extensions
             if (!extCfg.includeAll) {
-                if (extCfg.exts.has(ext)) return; // exclude listed exts
+                if (extCfg.exts.has(ext)) return;
             }
 
             // Remember meta for caching/validation
@@ -177,29 +182,67 @@ jQuery(document).ready(function($) {
                 });
         }
 
-        renderFolderStructure(folderStructure._folders, $tree, 0);
+        renderFolderStructure(folderStructure._folders, $tree, 0, '');
 
-        // Event delegation for selection
-        $tree.off('change').on('change', 'input[type="checkbox"]', function() {
-            const filePath = $(this).data('path');
-            if ($(this).prop('checked')) {
-                selectedFiles.add(filePath);
-            } else {
-                selectedFiles.delete(filePath);
-                delete fileContents[filePath];
-                setFileStatus(filePath, ''); // clear status when deselected
-            }
-            updateTokenCount();
-        });
+        // Bind delegated handlers (namespaced so we don't clobber others)
+        $tree.off('change.cbf-file')
+             .on('change.cbf-file', '.cbf-file input[type="checkbox"]', function() {
+                 const filePath = $(this).data('path');
+                 if ($(this).prop('checked')) {
+                     selectedFiles.add(filePath);
+                 } else {
+                     selectedFiles.delete(filePath);
+                     delete fileContents[filePath];
+                     setFileStatus(filePath, ''); // clear badge when deselected
+                 }
+                 updateTokenCount();
+                 updateAncestorsFrom($(this));
+             });
+
+        $tree.off('change.cbf-folder')
+             .on('change.cbf-folder', '.cbf-folder-checkbox', function() {
+                 const $folder = $(this).closest('.cbf-folder');
+                 const checked = $(this).prop('checked');
+                 // When toggled, clear indeterminate and apply to all descendants
+                 this.indeterminate = false;
+
+                 // Toggle descendant files
+                 $folder.find('.cbf-file input[type="checkbox"]').each(function() {
+                     $(this).prop('checked', checked).trigger('change');
+                 });
+
+                 // Toggle descendant folder checkboxes
+                 $folder.find('.cbf-folder-checkbox').each(function() {
+                     $(this).prop('checked', checked);
+                     this.indeterminate = false;
+                 });
+
+                 updateAncestorsFrom($(this));
+             });
+
+        $tree.off('click.cbf-folder-toggle keydown.cbf-folder-toggle')
+             .on('click.cbf-folder-toggle', '.cbf-folder-name', function() {
+                 $(this).closest('.cbf-folder').find('> .cbf-folder-contents').toggle();
+             })
+             .on('keydown.cbf-folder-toggle', '.cbf-folder-name', function(e) {
+                 if (e.key === 'Enter' || e.key === ' ') {
+                     e.preventDefault();
+                     $(this).click();
+                 }
+             });
     }
 
-    function renderFolderStructure(structure, $container, indent) {
+    function renderFolderStructure(structure, $container, indent, parentPath) {
         Object.keys(structure).sort().forEach(folderName => {
             const folder = structure[folderName];
+            const fullPath = parentPath ? (parentPath + '/' + folderName) : folderName;
 
             const $folder = $(`
-                <div class="cbf-folder" style="margin-left: ${indent}px;">
-                    <span class="cbf-folder-name">📁 ${folderName}</span>
+                <div class="cbf-folder" data-folder-path="${fullPath}" style="margin-left: ${indent}px;">
+                    <div class="cbf-folder-header">
+                        <input type="checkbox" class="cbf-folder-checkbox" data-folder-path="${fullPath}">
+                        <span class="cbf-folder-name" role="button" tabindex="0">📁 ${folderName}</span>
+                    </div>
                     <div class="cbf-folder-contents"></div>
                 </div>
             `);
@@ -226,12 +269,8 @@ jQuery(document).ready(function($) {
             }
 
             if (folder._folders) {
-                renderFolderStructure(folder._folders, $contents, indent + 20);
+                renderFolderStructure(folder._folders, $contents, indent + 20, fullPath);
             }
-
-            $folder.find('.cbf-folder-name').on('click', function() {
-                $(this).next('.cbf-folder-contents').toggle();
-            });
         });
     }
 
@@ -244,23 +283,68 @@ jQuery(document).ready(function($) {
 
     // ---------- Select / Deselect ----------
     function selectAllFiles() {
-        const $boxes = $('#cbf-file-tree input[type="checkbox"]');
+        const $boxes = $('#cbf-file-tree .cbf-file input[type="checkbox"]');
         selectedFiles.clear();
         $boxes.each(function() {
             const $box = $(this);
             $box.prop('checked', true);
             selectedFiles.add($box.data('path'));
         });
+        // Mark all folder checkboxes checked (no indeterminate)
+        $('#cbf-file-tree .cbf-folder-checkbox').each(function() {
+            $(this).prop('checked', true);
+            this.indeterminate = false;
+        });
         updateTokenCount();
     }
 
     function deselectAllFiles() {
-        const $boxes = $('#cbf-file-tree input[type="checkbox"]');
+        const $boxes = $('#cbf-file-tree .cbf-file input[type="checkbox"]');
         $boxes.prop('checked', false);
         selectedFiles.clear();
         fileContents = {};
         $('#cbf-file-tree .cbf-file-status').removeClass('is-fetched is-cached is-error').attr('title', '');
+        // Clear all folder checkboxes
+        $('#cbf-file-tree .cbf-folder-checkbox').each(function() {
+            $(this).prop('checked', false);
+            this.indeterminate = false;
+        });
         updateTokenCount();
+    }
+
+    // ---------- Folder checkbox tri-state helpers ----------
+    function updateFolderCheckboxState($folder) {
+        const $checkbox = $folder.find('> .cbf-folder-header > .cbf-folder-checkbox');
+        const $descFileBoxes = $folder.find('.cbf-file input[type="checkbox"]');
+        const total = $descFileBoxes.length;
+        if (total === 0) {
+            $checkbox.prop('checked', false);
+            $checkbox[0].indeterminate = false;
+            return;
+        }
+        const checked = $descFileBoxes.filter(':checked').length;
+        if (checked === 0) {
+            $checkbox.prop('checked', false);
+            $checkbox[0].indeterminate = false;
+        } else if (checked === total) {
+            $checkbox.prop('checked', true);
+            $checkbox[0].indeterminate = false;
+        } else {
+            $checkbox.prop('checked', false);
+            $checkbox[0].indeterminate = true;
+        }
+    }
+
+    function updateAncestorsFrom($elem) {
+        $elem.parents('.cbf-folder').each(function() {
+            updateFolderCheckboxState($(this));
+        });
+    }
+
+    function syncAllFolderCheckboxes() {
+        $('#cbf-file-tree .cbf-folder').each(function() {
+            updateFolderCheckboxState($(this));
+        });
     }
 
     // ---------- Fetch + Cache ----------
@@ -347,7 +431,7 @@ jQuery(document).ready(function($) {
         }
     }
 
-    // ---------- Prompt generation / clipboard ----------
+    // ---------- Prompt generation / clipboard / download ----------
     function generatePrompt() {
         const customInstructions = $('#cbf-custom-instructions').val();
         const userQuery = $('#cbf-user-query').val();
@@ -391,6 +475,35 @@ jQuery(document).ready(function($) {
         const originalText = $btn.text();
         $btn.text('Copied!');
         setTimeout(() => $btn.text(originalText), 2000);
+    }
+
+    function downloadTxt() {
+        const text = $('#cbf-output').val() || '';
+        if (!text.trim()) {
+            alert('No prompt to download. Generate it first.');
+            return;
+        }
+        const branch = ($('#cbf-branch').val() || 'main').trim();
+        const slug = (getRepoKey(currentRepo, branch) || 'prompt')
+            .replace('@', '-')
+            .replace(/[^\w\-\.]+/g, '-');
+        const ts = timestampCompact();
+        const filename = `enhanced-prompt-${slug}-${ts}.txt`;
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    function timestampCompact() {
+        const d = new Date();
+        const p = n => String(n).padStart(2, '0');
+        return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
     }
 
     // ---------- Token counting ----------
@@ -457,13 +570,8 @@ jQuery(document).ready(function($) {
         $fb.text(msg)
            .removeClass('is-success is-error')
            .addClass(success ? 'is-success' : 'is-error');
-        // Keep it visible; fade after a short delay
-        setTimeout(() => {
-            $fb.addClass('fade');
-        }, 2500);
-        setTimeout(() => {
-            clearFetchFeedback();
-        }, 5000);
+        setTimeout(() => { $fb.addClass('fade'); }, 2500);
+        setTimeout(() => { clearFetchFeedback(); }, 5000);
     }
 
     function clearFetchFeedback() {
@@ -483,7 +591,7 @@ jQuery(document).ready(function($) {
     function markCachedBadges() {
         const branch = $('#cbf-branch').val().trim();
         const repoKey = getRepoKey(currentRepo, branch);
-        $('#cbf-file-tree input[type="checkbox"]').each(function() {
+        $('#cbf-file-tree input[type="checkbox"][data-path]').each(function() {
             const path = $(this).data('path');
             const sha = $(this).data('sha') || null;
             const cached = getCacheEntry(repoKey, path);
@@ -522,7 +630,6 @@ jQuery(document).ready(function($) {
         try {
             localStorage.setItem(CACHE_NS, JSON.stringify(obj));
         } catch (e) {
-            // Storage might be full—best-effort only
             console.warn('Cache write failed:', e);
         }
     }
