@@ -82,18 +82,23 @@
     margin-bottom: 5px;
 }
 
-.cbf-folder-name {
-    cursor: pointer;
-    font-weight: 600;
-    display: block;
+.cbf-folder-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     padding: 5px;
     background: #f0f0f0;
     border-radius: 3px;
     user-select: none;
 }
 
+.cbf-folder-name {
+    cursor: pointer;
+    font-weight: 600;
+}
+
 .cbf-folder-name:hover {
-    background: #e0e0e0;
+    text-decoration: underline;
 }
 
 .cbf-folder-contents {
