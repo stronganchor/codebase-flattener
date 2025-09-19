@@ -39,8 +39,8 @@ function cbf_enqueue_admin_scripts($hook) {
     }
 
     // Use file modification time as version to bust cache
-    $js_version = filemtime(CBF_PLUGIN_PATH . 'assets/admin.js');
-    $css_version = filemtime(CBF_PLUGIN_PATH . 'assets/admin.css');
+    $js_version = file_exists(CBF_PLUGIN_PATH . 'assets/admin.js') ? filemtime(CBF_PLUGIN_PATH . 'assets/admin.js') : false;
+    $css_version = file_exists(CBF_PLUGIN_PATH . 'assets/admin.css') ? filemtime(CBF_PLUGIN_PATH . 'assets/admin.css') : false;
 
     wp_enqueue_script('cbf-admin-js', CBF_PLUGIN_URL . 'assets/admin.js', array('jquery'), $js_version, true);
     wp_enqueue_style('cbf-admin-css', CBF_PLUGIN_URL . 'assets/admin.css', array(), $css_version);
@@ -75,7 +75,7 @@ function cbf_admin_page() {
                     <input type="text" id="cbf-repo-url" placeholder="https://github.com/owner/repo" />
                     <button id="cbf-load-repo" class="button button-primary">Load Repository</button>
                 </div>
-                
+
                 <div class="cbf-section">
                     <label for="cbf-max-tokens">Max Tokens (approximate):</label>
                     <input type="number" id="cbf-max-tokens" value="128000" />
@@ -150,6 +150,7 @@ END CUSTOM INSTRUCTIONS</textarea>
                 <div class="cbf-section">
                     <button id="cbf-generate-prompt" class="button button-primary">Generate Enhanced Prompt</button>
                     <button id="cbf-copy-prompt" class="button">Copy to Clipboard</button>
+                    <button id="cbf-download-txt" class="button">Download .txt</button>
                 </div>
 
                 <div class="cbf-section">
