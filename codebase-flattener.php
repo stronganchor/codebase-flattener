@@ -132,12 +132,16 @@ When providing code changes, indicate the relative path of the file or files tha
 For each file that needs changing:
 - If you are only changing one line, provide just the updated line with context
 - If you are changing more than one line, provide either entire updated functions or the entire updated code file
+- Do not provide code changes in "diff" format. Instead provide the entire updated line, function or file
 
 General notes:
 - Provide minimal code changes. Avoid making unnecessary changes that will contribute to diff noise.
-- Only add comments that are necessary for understanding the logical flow of the code.
+- Only add comments that are necessary for understanding the logical flow of the code. Do not include meta-chat comments (e.g., “here’s the change”, “optional”).
+- Do not include instructions to the user in comments. Any instructions to the user should be outside of code blocks.
 
 If you are unable to complete the requested task due to lack of code context, include in your response a request to see additional code.
+
+If the request is too substantive for one response, break it into smaller steps and give me the first set of changes and notify the user that this is only the first part of the solution.
 
 END CUSTOM INSTRUCTIONS</textarea>
                 </div>
