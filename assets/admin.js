@@ -29,6 +29,11 @@ jQuery(document).ready(function($) {
         }
     });
 
+    // When ignore list / extension filters change, keep token estimate fresh
+    $('#cbf-ignore-dirs, #cbf-extensions, #cbf-branch').on('input change', function() {
+        updateTokenCount();
+    });
+
     // Inject a non-intrusive feedback badge next to the fetch button
     const $fetchBtn = $('#cbf-fetch-selected');
     if (!$('#cbf-fetch-feedback').length) {
@@ -72,6 +77,7 @@ jQuery(document).ready(function($) {
                 selectAllFiles();
                 syncAllFolderCheckboxes();
                 saveToRecent(repoUrl);
+                updateTokenCount();
             } else {
                 alert('Error: ' + response.data);
             }
@@ -118,7 +124,7 @@ jQuery(document).ready(function($) {
         return false;
     }
 
-    // ---------- File tree ----------
+    // ---------- File tree (UI) ----------
     function displayFileTree() {
         const extCfg = parseExtensionsInput();
         const ignoreSet = parseIgnoreDirsInput();
@@ -431,6 +437,132 @@ jQuery(document).ready(function($) {
         }
     }
 
+    // ---------- Repository Overview (for prompt) ----------
+    // Collect unique ignored folder paths in the repo (where an ignore-set segment appears)
+    function collectIgnoredFolderMatches(ignoreSet) {
+        const matches = new Set();
+        if (!Array.isArray(repoTree) || repoTree.length === 0 || ignoreSet.size === 0) return [];
+
+        for (let item of repoTree) {
+            const rawPath = item.path || '';
+            const parts = rawPath.split('/');
+            // find first segment that is in ignoreSet (case-insensitive already handled outside)
+            for (let i = 0; i < parts.length; i++) {
+                const segLower = (parts[i] || '').toLowerCase();
+                if (ignoreSet.has(segLower)) {
+                    const matchPath = parts.slice(0, i + 1).join('/') + '/';
+                    matches.add(matchPath);
+                    break;
+                }
+            }
+        }
+        return Array.from(matches).sort((a, b) => a.localeCompare(b));
+    }
+
+    // Build a nested folder tree that includes ALL non-ignored folders, and files under them.
+    function buildFullNonIgnoredTree(ignoreSet) {
+        const root = { _files: [], _folders: {} };
+
+        if (!Array.isArray(repoTree) || repoTree.length === 0) return root;
+
+        // Ensure folder nodes for 'tree' entries (non-ignored)
+        for (let item of repoTree) {
+            if (item.type !== 'tree') continue;
+            const pathLower = (item.path || '').toLowerCase();
+            if (pathContainsIgnoredDir(pathLower, ignoreSet)) continue;
+            const parts = item.path.split('/');
+            let node = root;
+            for (let i = 0; i < parts.length; i++) {
+                const seg = parts[i];
+                if (!node._folders[seg]) node._folders[seg] = { _files: [], _folders: {} };
+                node = node._folders[seg];
+            }
+        }
+
+        // Add files (blobs) to the tree (non-ignored). DO NOT filter by extension here.
+        for (let item of repoTree) {
+            if (item.type !== 'blob') continue;
+            const pathLower = (item.path || '').toLowerCase();
+            if (pathContainsIgnoredDir(pathLower, ignoreSet)) continue;
+
+            const parts = item.path.split('/');
+            const fileName = parts[parts.length - 1];
+
+            let node = root;
+            for (let i = 0; i < parts.length - 1; i++) {
+                const seg = parts[i];
+                if (!node._folders[seg]) node._folders[seg] = { _files: [], _folders: {} };
+                node = node._folders[seg];
+            }
+            node._files.push({ name: fileName, path: item.path });
+        }
+
+        return root;
+    }
+
+    // Render the tree to a text overview (folders + file names). Indented with two spaces per depth.
+    function renderTreeToLines(node, folderName, depth, lines) {
+        const indent = '  '.repeat(depth);
+        if (folderName !== null) {
+            lines.push(`${indent}${folderName}/`);
+        } else {
+            lines.push(`/`); // root
+        }
+
+        // Root or folder files
+        if (node._files && node._files.length) {
+            const filesSorted = node._files.slice().sort((a, b) => a.name.localeCompare(b.name));
+            for (let f of filesSorted) {
+                lines.push(`${indent}  - ${f.name}`);
+            }
+        }
+
+        // Subfolders
+        const subNames = Object.keys(node._folders || {}).sort();
+        for (let name of subNames) {
+            renderTreeToLines(node._folders[name], name, depth + 1, lines);
+        }
+    }
+
+    // Build the textual repository overview block
+    function buildRepositoryOverviewBlock() {
+        if (!Array.isArray(repoTree) || repoTree.length === 0) {
+            return 'Repository overview is unavailable (repository not loaded).\n';
+        }
+
+        const ignoreSet = parseIgnoreDirsInput();
+        const activeIgnoreList = Array.from(ignoreSet).sort();
+
+        const ignoredFound = collectIgnoredFolderMatches(ignoreSet);
+        const fullTree = buildFullNonIgnoredTree(ignoreSet);
+
+        const lines = [];
+
+        lines.push('Repository Overview');
+        lines.push('-------------------');
+        if (activeIgnoreList.length) {
+            lines.push(`Active ignore list: ${activeIgnoreList.join(', ')}`);
+        } else {
+            lines.push('Active ignore list: (none)');
+        }
+
+        if (ignoredFound.length) {
+            lines.push('Ignored folders present in repo (matched by ignore list):');
+            for (let p of ignoredFound) lines.push(`- ${p}`);
+        } else {
+            lines.push('Ignored folders present in repo: (none found)');
+        }
+
+        lines.push('');
+        lines.push('Structure (non-ignored folders only; lists file names under each folder):');
+
+        const treeLines = [];
+        renderTreeToLines(fullTree, null, 0, treeLines);
+
+        // Wrap the tree in a code block for readability in the prompt
+        return lines.join('\n') + '\n\n```\n' + treeLines.join('\n') + '\n```\n';
+    }
+
     // ---------- Prompt generation / clipboard / download ----------
     function generatePrompt() {
         const customInstructions = $('#cbf-custom-instructions').val();
@@ -446,7 +578,11 @@ jQuery(document).ready(function($) {
             return;
         }
 
+        // NEW: Build repository overview section (near the beginning)
+        const overviewBlock = buildRepositoryOverviewBlock();
+
         let prompt = `User Query:\n${userQuery}\n\n`;
+        prompt += `Repository Overview:\n${overviewBlock}\n`;
         prompt += `Relevant Code Context:\n`;
 
         for (let [path, content] of Object.entries(fileContents)) {
@@ -484,19 +620,19 @@ jQuery(document).ready(function($) {
             return;
         }
         const branch = ($('#cbf-branch').val() || 'main').trim();
-    
+
         // Existing repo/branch slug
         const slug = (getRepoKey(currentRepo, branch) || 'prompt')
             .replace('@', '-')
             .replace(/[^\w\-\.]+/g, '-');
-    
+
         // NEW: include first few words of user query in filename
         const querySnippet = getQuerySnippet(5, 48); // first 5 words, max ~48 chars
         const qsPart = querySnippet ? `-${querySnippet}` : '';
-    
+
         const ts = timestampCompact();
-        const filename = `prompt${qsPart}-${slug}-${ts}.txt`;
-    
+        const filename = `enhanced-prompt-${slug}${qsPart}-${ts}.txt`;
+
         const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -529,7 +665,7 @@ jQuery(document).ready(function($) {
         if (maxLen && s.length > maxLen) s = s.slice(0, maxLen).replace(/-+$/, '');
         return s || 'no-query';
     }
-    
+
     // Get first N words from the query and slugify them
     function getQuerySnippet(words = 5, maxLen = 50) {
         const q = ($('#cbf-user-query').val() || '').trim();
@@ -542,13 +678,19 @@ jQuery(document).ready(function($) {
     function updateTokenCount() {
         let totalChars = 0;
 
+        // Add sizes for file paths + contents
         for (let [path, content] of Object.entries(fileContents)) {
             totalChars += path.length + (content ? content.length : 0) + 20;
         }
 
+        // Add custom instructions + user query
         const customInstructions = $('#cbf-custom-instructions').val() || '';
         const userQuery = $('#cbf-user-query').val() || '';
         totalChars += customInstructions.length + userQuery.length + 100;
+
+        // Add rough size for the overview block (recomputed to reflect current ignore list)
+        const overview = buildRepositoryOverviewBlock();
+        totalChars += overview.length;
 
         const estimatedTokens = Math.ceil(totalChars / 4);
         $('#cbf-token-count').text(estimatedTokens.toLocaleString());
