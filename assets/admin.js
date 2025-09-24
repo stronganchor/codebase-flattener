@@ -554,7 +554,7 @@ jQuery(document).ready(function($) {
         }
 
         lines.push('');
-        lines.push('Structure (non-ignored folders only; lists file names under each folder):');
+        lines.push('Structure');
 
         const treeLines = [];
         renderTreeToLines(fullTree, null, 0, treeLines);
@@ -582,7 +582,7 @@ jQuery(document).ready(function($) {
         const overviewBlock = buildRepositoryOverviewBlock();
 
         let prompt = `User Query:\n${userQuery}\n\n`;
-        prompt += `Repository Overview:\n${overviewBlock}\n`;
+        prompt += `${overviewBlock}\n`;
         prompt += `Relevant Code Context:\n`;
 
         for (let [path, content] of Object.entries(fileContents)) {
