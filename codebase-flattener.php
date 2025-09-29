@@ -152,7 +152,6 @@ END CUSTOM INSTRUCTIONS</textarea>
                 </div>
 
                 <div class="cbf-section">
-                    <button id="cbf-generate-prompt" class="button button-primary">Generate Enhanced Prompt</button>
                     <button id="cbf-copy-prompt" class="button">Copy to Clipboard</button>
                     <button id="cbf-download-txt" class="button">Download .txt</button>
                 </div>
