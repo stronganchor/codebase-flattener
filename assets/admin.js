@@ -567,73 +567,91 @@ jQuery(document).ready(function($) {
     function generatePrompt() {
         const customInstructions = $('#cbf-custom-instructions').val();
         const userQuery = $('#cbf-user-query').val();
-
+    
         if (!userQuery) {
             alert('Please enter a query/request');
-            return;
+            return null;
         }
-
+    
         if (Object.keys(fileContents).length === 0) {
             alert('No file contents available. Please fetch selected files first.');
-            return;
+            return null;
         }
-
-        // NEW: Build repository overview section (near the beginning)
+    
         const overviewBlock = buildRepositoryOverviewBlock();
-
+    
         let prompt = `User Query:\n${userQuery}\n\n`;
         prompt += `${overviewBlock}\n`;
         prompt += `Relevant Code Context:\n`;
-
+    
         for (let [path, content] of Object.entries(fileContents)) {
             prompt += `\nFile: ${path}\n\`\`\`\n${content}\n\`\`\`\n`;
         }
-
+    
         prompt += `\n\nCustom Instructions:\n${customInstructions}`;
         prompt += `\n\nRepeating User Query:\n${userQuery}`;
-
+    
+        // Set textarea for visibility and for legacy copy fallback
         $('#cbf-output').val(prompt);
-
+    
+        // Token estimate + warning (unchanged behavior)
         const maxTokens = parseInt($('#cbf-max-tokens').val(), 10);
         const estimatedTokens = Math.ceil(prompt.length / 4);
-
         if (estimatedTokens > maxTokens) {
             alert(`Warning: Estimated ${estimatedTokens} tokens exceeds max ${maxTokens}. Consider deselecting some files.`);
         }
+    
+        return prompt;
     }
-
-    function copyToClipboard() {
-        const output = document.getElementById('cbf-output');
-        output.select();
-        document.execCommand('copy');
-
+    
+    async function copyToClipboard() {
+        const prompt = generatePrompt();
+        if (!prompt) return; // prerequisites not met
+    
         const $btn = $('#cbf-copy-prompt');
         const originalText = $btn.text();
-        $btn.text('Copied!');
-        setTimeout(() => $btn.text(originalText), 2000);
-    }
-
-    function downloadTxt() {
-        const text = $('#cbf-output').val() || '';
-        if (!text.trim()) {
-            alert('No prompt to download. Generate it first.');
+    
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(prompt);
+            } else {
+                // Fallback for older browsers: copy from the output textarea
+                const output = document.getElementById('cbf-output');
+                output.focus();
+                output.select();
+                document.execCommand('copy');
+            }
+            $btn.addClass('copied').text('Copied!');
+        } catch (e) {
+            console.error('Clipboard copy failed:', e);
+            alert('Failed to copy to clipboard.');
             return;
+        } finally {
+            setTimeout(() => {
+                $btn.removeClass('copied').text(originalText);
+            }, 2000);
         }
+    }
+    
+    function downloadTxt() {
+        const prompt = generatePrompt();
+        if (!prompt) return; // prerequisites not met
+    
         const branch = ($('#cbf-branch').val() || 'main').trim();
-
+    
         // Existing repo/branch slug
         const slug = (getRepoKey(currentRepo, branch) || 'prompt')
             .replace('@', '-')
             .replace(/[^\w\-\.]+/g, '-');
-
-        // NEW: include first few words of user query in filename
+    
+        // Include first few words of user query in filename
         const querySnippet = getQuerySnippet(5, 48); // first 5 words, max ~48 chars
         const qsPart = querySnippet ? `-${querySnippet}` : '';
-
+    
         const ts = timestampCompact();
         const filename = `enhanced-prompt-${slug}${qsPart}-${ts}.txt`;
-
-        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    
+        const blob = new Blob([prompt], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -643,6 +661,7 @@ jQuery(document).ready(function($) {
         a.remove();
         URL.revokeObjectURL(url);
     }
+
 
     function timestampCompact() {
         const d = new Date();
