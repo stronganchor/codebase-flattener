@@ -649,7 +649,7 @@ jQuery(document).ready(function($) {
         const qsPart = querySnippet ? `-${querySnippet}` : '';
     
         const ts = timestampCompact();
-        const filename = `enhanced-prompt-${slug}${qsPart}-${ts}.txt`;
+        const filename = `${slug}${qsPart}-${ts}.txt`;
     
         const blob = new Blob([prompt], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
