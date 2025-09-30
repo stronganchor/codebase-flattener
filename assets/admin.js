@@ -633,23 +633,23 @@ jQuery(document).ready(function($) {
         }
     }
     
+    // ---------- Prompt download (repo *name* only, no owner) ----------
     function downloadTxt() {
         const prompt = generatePrompt();
         if (!prompt) return; // prerequisites not met
     
-        const branch = ($('#cbf-branch').val() || 'main').trim();
+        // Repo name only
+        const repoName = getRepoNameFromUrl(currentRepo);
+        const repoSlug = makeSafeSlug(repoName, 40); // keep tidy
     
-        // Existing repo/branch slug
-        const slug = (getRepoKey(currentRepo, branch) || 'prompt')
-            .replace('@', '-')
-            .replace(/[^\w\-\.]+/g, '-');
-    
-        // Include first few words of user query in filename
-        const querySnippet = getQuerySnippet(5, 48); // first 5 words, max ~48 chars
+        // First few words of the user query
+        const querySnippet = getQuerySnippet(5, 48); // first 5 words, ~48 chars max
         const qsPart = querySnippet ? `-${querySnippet}` : '';
     
         const ts = timestampCompact();
-        const filename = `${slug}${qsPart}-${ts}.txt`;
+    
+        // Final filename: <repoName>-<query-snippet>-<timestamp>.txt
+        const filename = `${repoSlug}${qsPart}-${ts}.txt`;
     
         const blob = new Blob([prompt], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
@@ -661,7 +661,6 @@ jQuery(document).ready(function($) {
         a.remove();
         URL.revokeObjectURL(url);
     }
-
 
     function timestampCompact() {
         const d = new Date();
@@ -797,6 +796,24 @@ jQuery(document).ready(function($) {
     // CSS.escape polyfill-ish for attribute selectors
     function cssEscape(str) {
         return String(str).replace(/("|'|\\|\.|\[|\]|:|\/)/g, '\\$1');
+    }
+
+    // ---------- Filename helpers ----------
+    function getRepoNameFromUrl(repoUrl) {
+        if (!repoUrl) return 'repo';
+        let repo = null;
+    
+        // Full GitHub URL: https://github.com/owner/repo[.git][...]
+        const m1 = String(repoUrl).match(/github\.com\/[^\/]+\/([^\/\?#]+)(?:[\/\?#]|$)/i);
+        if (m1) {
+            repo = m1[1];
+        } else {
+            // Owner/repo form (no domain), or just "repo"
+            const m2 = String(repoUrl).match(/^[^\/]+\/([^\/#\?]+)$/);
+            repo = m2 ? m2[1] : String(repoUrl).split('/').pop();
+        }
+    
+        return (repo || 'repo').replace(/\.git$/i, '');
     }
 
     // ---------- Cache helpers (localStorage) ----------
