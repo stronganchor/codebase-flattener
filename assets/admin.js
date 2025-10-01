@@ -9,6 +9,10 @@ jQuery(document).ready(function($) {
     // ---------- Constants ----------
     const CACHE_NS = 'cbf_cache_v1';
 
+    // Auto-fetch thresholds (tweak as needed)
+    const AUTO_FETCH_MAX_FILES = 200;                 // hard cap on number of files to auto-fetch
+    const AUTO_FETCH_MAX_BYTES = 2 * 1024 * 1024;     // ~2 MB total content cap for auto-fetch
+
     // ---------- Boot ----------
     loadRecentRepos();
 
@@ -78,6 +82,8 @@ jQuery(document).ready(function($) {
                 syncAllFolderCheckboxes();
                 saveToRecent(repoUrl);
                 updateTokenCount();
+                // NEW: auto-fetch a safe subset right away
+                autoFetchAfterLoad();
             } else {
                 alert('Error: ' + response.data);
             }
@@ -354,9 +360,10 @@ jQuery(document).ready(function($) {
     }
 
     // ---------- Fetch + Cache ----------
-    async function fetchSelectedFiles() {
-        if (selectedFiles.size === 0) {
-            alert('No files selected');
+    // NEW: core worker that fetches a provided list (subset) of file paths
+    async function fetchFiles(fileList) {
+        if (!Array.isArray(fileList) || fileList.length === 0) {
+            setFetchFeedback('No files to fetch', false);
             return;
         }
 
@@ -368,14 +375,13 @@ jQuery(document).ready(function($) {
         clearFetchFeedback();
 
         let fetchedCount = 0;
-        const totalFiles = selectedFiles.size;
+        const totalFiles = fileList.length;
 
-        // Progress update helper
         const updateProgress = () => {
             $fetchBtn.text(`Fetching... (${fetchedCount}/${totalFiles})`);
         };
 
-        for (let filePath of selectedFiles) {
+        for (let filePath of fileList) {
             const meta = pathToMeta.get(filePath) || {};
             const expectedSha = meta.sha || ($(`#cbf-file-tree input[data-path="${cssEscape(filePath)}"]`).data('sha') || null);
 
@@ -429,7 +435,6 @@ jQuery(document).ready(function($) {
         setButtonBusy($fetchBtn, false, 'Fetch Selected Files');
         updateTokenCount();
 
-        // Non-intrusive success message (no alerts)
         if (fetchedCount === totalFiles) {
             setFetchFeedback(`Fetched ${fetchedCount} files ✓`, true);
         } else {
@@ -437,8 +442,40 @@ jQuery(document).ready(function($) {
         }
     }
 
+    async function fetchSelectedFiles() {
+        if (selectedFiles.size === 0) {
+            alert('No files selected');
+            return;
+        }
+        await fetchFiles(Array.from(selectedFiles));
+    }
+
+    // NEW: compute a safe subset and fetch it automatically after first load
+    function autoFetchAfterLoad() {
+        const all = Array.from(selectedFiles);
+        if (all.length === 0) return;
+
+        // Sort by size ascending to maximize coverage within caps
+        const withSizes = all.map(p => ({ path: p, size: (pathToMeta.get(p)?.size || 0) }));
+        withSizes.sort((a, b) => a.size - b.size);
+
+        const subset = [];
+        let bytes = 0;
+
+        for (let i = 0; i < withSizes.length; i++) {
+            const { path, size } = withSizes[i];
+            if (subset.length >= AUTO_FETCH_MAX_FILES) break;
+            if (bytes + size > AUTO_FETCH_MAX_BYTES) break;
+            subset.push(path);
+            bytes += size;
+        }
+
+        if (subset.length > 0) {
+            fetchFiles(subset);
+        }
+    }
+
     // ---------- Repository Overview (for prompt) ----------
-    // Collect unique ignored folder paths in the repo (where an ignore-set segment appears)
     function collectIgnoredFolderMatches(ignoreSet) {
         const matches = new Set();
         if (!Array.isArray(repoTree) || repoTree.length === 0 || ignoreSet.size === 0) return [];
@@ -446,7 +483,6 @@ jQuery(document).ready(function($) {
         for (let item of repoTree) {
             const rawPath = item.path || '';
             const parts = rawPath.split('/');
-            // find first segment that is in ignoreSet (case-insensitive already handled outside)
             for (let i = 0; i < parts.length; i++) {
                 const segLower = (parts[i] || '').toLowerCase();
                 if (ignoreSet.has(segLower)) {
@@ -459,13 +495,10 @@ jQuery(document).ready(function($) {
         return Array.from(matches).sort((a, b) => a.localeCompare(b));
     }
 
-    // Build a nested folder tree that includes ALL non-ignored folders, and files under them.
     function buildFullNonIgnoredTree(ignoreSet) {
         const root = { _files: [], _folders: {} };
-
         if (!Array.isArray(repoTree) || repoTree.length === 0) return root;
 
-        // Ensure folder nodes for 'tree' entries (non-ignored)
         for (let item of repoTree) {
             if (item.type !== 'tree') continue;
             const pathLower = (item.path || '').toLowerCase();
@@ -479,7 +512,6 @@ jQuery(document).ready(function($) {
             }
         }
 
-        // Add files (blobs) to the tree (non-ignored). DO NOT filter by extension here.
         for (let item of repoTree) {
             if (item.type !== 'blob') continue;
             const pathLower = (item.path || '').toLowerCase();
@@ -500,16 +532,14 @@ jQuery(document).ready(function($) {
         return root;
     }
 
-    // Render the tree to a text overview (folders + file names). Indented with two spaces per depth.
     function renderTreeToLines(node, folderName, depth, lines) {
         const indent = '  '.repeat(depth);
         if (folderName !== null) {
             lines.push(`${indent}${folderName}/`);
         } else {
-            lines.push(`/`); // root
+            lines.push(`/`);
         }
 
-        // Root or folder files
         if (node._files && node._files.length) {
             const filesSorted = node._files.slice().sort((a, b) => a.name.localeCompare(b.name));
             for (let f of filesSorted) {
@@ -517,14 +547,12 @@ jQuery(document).ready(function($) {
             }
         }
 
-        // Subfolders
         const subNames = Object.keys(node._folders || {}).sort();
         for (let name of subNames) {
             renderTreeToLines(node._folders[name], name, depth + 1, lines);
         }
     }
 
-    // Build the textual repository overview block
     function buildRepositoryOverviewBlock() {
         if (!Array.isArray(repoTree) || repoTree.length === 0) {
             return 'Repository overview is unavailable (repository not loaded).\n';
@@ -559,7 +587,6 @@ jQuery(document).ready(function($) {
         const treeLines = [];
         renderTreeToLines(fullTree, null, 0, treeLines);
 
-        // Wrap the tree in a code block for readability in the prompt
         return lines.join('\n') + '\n\n```\n' + treeLines.join('\n') + '\n```\n';
     }
 
@@ -567,55 +594,52 @@ jQuery(document).ready(function($) {
     function generatePrompt() {
         const customInstructions = $('#cbf-custom-instructions').val();
         const userQuery = $('#cbf-user-query').val();
-    
+
         if (!userQuery) {
             alert('Please enter a query/request');
             return null;
         }
-    
+
         if (Object.keys(fileContents).length === 0) {
             alert('No file contents available. Please fetch selected files first.');
             return null;
         }
-    
+
         const overviewBlock = buildRepositoryOverviewBlock();
-    
+
         let prompt = `User Query:\n${userQuery}\n\n`;
         prompt += `${overviewBlock}\n`;
         prompt += `Relevant Code Context:\n`;
-    
+
         for (let [path, content] of Object.entries(fileContents)) {
             prompt += `\nFile: ${path}\n\`\`\`\n${content}\n\`\`\`\n`;
         }
-    
+
         prompt += `\n\nCustom Instructions:\n${customInstructions}`;
         prompt += `\n\nRepeating User Query:\n${userQuery}`;
-    
-        // Set textarea for visibility and for legacy copy fallback
+
         $('#cbf-output').val(prompt);
-    
-        // Token estimate + warning (unchanged behavior)
+
         const maxTokens = parseInt($('#cbf-max-tokens').val(), 10);
         const estimatedTokens = Math.ceil(prompt.length / 4);
         if (estimatedTokens > maxTokens) {
             alert(`Warning: Estimated ${estimatedTokens} tokens exceeds max ${maxTokens}. Consider deselecting some files.`);
         }
-    
+
         return prompt;
     }
-    
+
     async function copyToClipboard() {
         const prompt = generatePrompt();
-        if (!prompt) return; // prerequisites not met
-    
+        if (!prompt) return;
+
         const $btn = $('#cbf-copy-prompt');
         const originalText = $btn.text();
-    
+
         try {
             if (navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(prompt);
             } else {
-                // Fallback for older browsers: copy from the output textarea
                 const output = document.getElementById('cbf-output');
                 output.focus();
                 output.select();
@@ -632,25 +656,23 @@ jQuery(document).ready(function($) {
             }, 2000);
         }
     }
-    
-    // ---------- Prompt download (repo *name* only, no owner) ----------
+
+    // ---------- Prompt download (use abbreviated repo prefix) ----------
     function downloadTxt() {
         const prompt = generatePrompt();
-        if (!prompt) return; // prerequisites not met
-    
-        // Repo name only
+        if (!prompt) return;
+
         const repoName = getRepoNameFromUrl(currentRepo);
-        const repoSlug = makeSafeSlug(repoName, 40); // keep tidy
-    
-        // First few words of the user query
-        const querySnippet = getQuerySnippet(5, 48); // first 5 words, ~48 chars max
-        const qsPart = querySnippet ? `-${querySnippet}` : '';
-    
+        const prefix = getRepoAbbrevPrefix(repoName); // e.g., "llt-"
+
+        const querySnippet = getQuerySnippet(5, 48);
+        const qsPart = querySnippet ? `${querySnippet}-` : '';
+
         const ts = timestampCompact();
-    
-        // Final filename: <repoName>-<query-snippet>-<timestamp>.txt
-        const filename = `${repoSlug}${qsPart}-${ts}.txt`;
-    
+
+        // Final filename: <abbr-prefix><query-snippet><timestamp>.txt
+        const filename = `${prefix}${qsPart}${ts}.txt`;
+
         const blob = new Blob([prompt], { type: 'text/plain;charset=utf-8' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -668,23 +690,21 @@ jQuery(document).ready(function($) {
         return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
     }
 
-    // Make a filesystem-safe slug
     function makeSafeSlug(str, maxLen = 50) {
         if (!str) return 'no-query';
         let s = String(str)
-            .normalize('NFKD').replace(/[\u0300-\u036f]/g, '') // strip accents
-            .replace(/['"`]/g, '')                             // drop quotes
-            .replace(/[^\w\s-]/g, ' ')                         // non-word -> space
+            .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+            .replace(/['"`]/g, '')
+            .replace(/[^\w\s-]/g, ' ')
             .trim()
-            .replace(/\s+/g, '-')                              // spaces -> hyphens
+            .replace(/\s+/g, '-')
             .toLowerCase()
-            .replace(/-+/g, '-')                               // collapse hyphens
-            .replace(/^[-_.]+|[-_.]+$/g, '');                  // trim punctuation
+            .replace(/-+/g, '-')
+            .replace(/^[-_.]+|[-_.]+$/g, '');
         if (maxLen && s.length > maxLen) s = s.slice(0, maxLen).replace(/-+$/, '');
         return s || 'no-query';
     }
 
-    // Get first N words from the query and slugify them
     function getQuerySnippet(words = 5, maxLen = 50) {
         const q = ($('#cbf-user-query').val() || '').trim();
         if (!q) return '';
@@ -696,17 +716,14 @@ jQuery(document).ready(function($) {
     function updateTokenCount() {
         let totalChars = 0;
 
-        // Add sizes for file paths + contents
         for (let [path, content] of Object.entries(fileContents)) {
             totalChars += path.length + (content ? content.length : 0) + 20;
         }
 
-        // Add custom instructions + user query
         const customInstructions = $('#cbf-custom-instructions').val() || '';
         const userQuery = $('#cbf-user-query').val() || '';
         totalChars += customInstructions.length + userQuery.length + 100;
 
-        // Add rough size for the overview block (recomputed to reflect current ignore list)
         const overview = buildRepositoryOverviewBlock();
         totalChars += overview.length;
 
@@ -798,27 +815,42 @@ jQuery(document).ready(function($) {
         return String(str).replace(/("|'|\\|\.|\[|\]|:|\/)/g, '\\$1');
     }
 
-    // ---------- Filename helpers ----------
+    // ---------- Filename + Repo helpers ----------
     function getRepoNameFromUrl(repoUrl) {
         if (!repoUrl) return 'repo';
         let repo = null;
-    
-        // Full GitHub URL: https://github.com/owner/repo[.git][...]
         const m1 = String(repoUrl).match(/github\.com\/[^\/]+\/([^\/\?#]+)(?:[\/\?#]|$)/i);
         if (m1) {
             repo = m1[1];
         } else {
-            // Owner/repo form (no domain), or just "repo"
             const m2 = String(repoUrl).match(/^[^\/]+\/([^\/#\?]+)$/);
             repo = m2 ? m2[1] : String(repoUrl).split('/').pop();
         }
-    
         return (repo || 'repo').replace(/\.git$/i, '');
+    }
+
+    function getRepoAbbrevPrefix(repoName) {
+        if (!repoName) return 'repo-';
+        const base = repoName.replace(/\.git$/i, '');
+
+        // Known mappings for nicer abbreviations
+        const map = {
+            'language-learner-tools': 'llt',
+            'codebase-flattener': 'cbf'
+        };
+        if (map[base]) return map[base] + '-';
+
+        // Fallback: take first letters of hyphen/underscore separated words
+        const parts = base.split(/[-_]+/).filter(Boolean);
+        const letters = parts.map(p => p[0].toLowerCase()).join('');
+        if (letters && letters.length >= 2) return letters + '-';
+
+        // Final fallback: first 3 chars
+        return (base.slice(0, 3).toLowerCase() || 'repo') + '-';
     }
 
     // ---------- Cache helpers (localStorage) ----------
     function getRepoKey(repoUrl, branch) {
-        // https://github.com/owner/repo(.git)? -> owner/repo@branch
         const m = (repoUrl || '').match(/github\.com\/([^\/]+)\/([^\/\?]+)/i);
         if (!m) return (repoUrl || 'repo') + '@' + (branch || 'main');
         const owner = m[1];
