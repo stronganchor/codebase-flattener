@@ -639,7 +639,7 @@ jQuery(document).ready(function($) {
     }
     
     async function copyToClipboard() {
-        const prompt = generatePrompt();
+        const prompt = await generatePrompt();
         if (!prompt) return;
 
         const $btn = $('#cbf-copy-prompt');
@@ -667,8 +667,8 @@ jQuery(document).ready(function($) {
     }
 
     // ---------- Prompt download (use abbreviated repo prefix) ----------
-    function downloadTxt() {
-        const prompt = generatePrompt();
+    async function downloadTxt() {
+        const prompt = await generatePrompt();
         if (!prompt) return;
 
         const repoName = getRepoNameFromUrl(currentRepo);
