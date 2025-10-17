@@ -204,7 +204,6 @@ jQuery(document).ready(function($) {
                      selectedFiles.add(filePath);
                  } else {
                      selectedFiles.delete(filePath);
-                     delete fileContents[filePath];
                      setFileStatus(filePath, ''); // clear badge when deselected
                  }
                  updateTokenCount();
@@ -591,44 +590,54 @@ jQuery(document).ready(function($) {
     }
 
     // ---------- Prompt generation / clipboard / download ----------
-    function generatePrompt() {
+    async function generatePrompt() {
         const customInstructions = $('#cbf-custom-instructions').val();
         const userQuery = $('#cbf-user-query').val();
-
+    
         if (!userQuery) {
             alert('Please enter a query/request');
             return null;
         }
-
-        if (Object.keys(fileContents).length === 0) {
-            alert('No file contents available. Please fetch selected files first.');
+    
+        // Auto-fetch any selected files that aren't fetched yet
+        const unfetchedSelected = Array.from(selectedFiles).filter(path => !fileContents[path]);
+        if (unfetchedSelected.length > 0) {
+            await fetchFiles(unfetchedSelected);
+        }
+    
+        // Filter fileContents to only include selected files
+        const selectedFileContents = Object.entries(fileContents)
+            .filter(([path]) => selectedFiles.has(path));
+    
+        if (selectedFileContents.length === 0) {
+            alert('No file contents available for selected files.');
             return null;
         }
-
+    
         const overviewBlock = buildRepositoryOverviewBlock();
-
+    
         let prompt = `User Query:\n${userQuery}\n\n`;
         prompt += `${overviewBlock}\n`;
         prompt += `Relevant Code Context:\n`;
-
-        for (let [path, content] of Object.entries(fileContents)) {
+    
+        for (let [path, content] of selectedFileContents) {
             prompt += `\nFile: ${path}\n\`\`\`\n${content}\n\`\`\`\n`;
         }
-
+    
         prompt += `\n\nCustom Instructions:\n${customInstructions}`;
         prompt += `\n\nRepeating User Query:\n${userQuery}`;
-
+    
         $('#cbf-output').val(prompt);
-
+    
         const maxTokens = parseInt($('#cbf-max-tokens').val(), 10);
         const estimatedTokens = Math.ceil(prompt.length / 4);
         if (estimatedTokens > maxTokens) {
             alert(`Warning: Estimated ${estimatedTokens} tokens exceeds max ${maxTokens}. Consider deselecting some files.`);
         }
-
+    
         return prompt;
     }
-
+    
     async function copyToClipboard() {
         const prompt = generatePrompt();
         if (!prompt) return;
@@ -715,21 +724,24 @@ jQuery(document).ready(function($) {
     // ---------- Token counting ----------
     function updateTokenCount() {
         let totalChars = 0;
-
+    
+        // Only count files that are both selected AND fetched
         for (let [path, content] of Object.entries(fileContents)) {
-            totalChars += path.length + (content ? content.length : 0) + 20;
+            if (selectedFiles.has(path)) {
+                totalChars += path.length + (content ? content.length : 0) + 20;
+            }
         }
-
+    
         const customInstructions = $('#cbf-custom-instructions').val() || '';
         const userQuery = $('#cbf-user-query').val() || '';
         totalChars += customInstructions.length + userQuery.length + 100;
-
+    
         const overview = buildRepositoryOverviewBlock();
         totalChars += overview.length;
-
+    
         const estimatedTokens = Math.ceil(totalChars / 4);
         $('#cbf-token-count').text(estimatedTokens.toLocaleString());
-
+    
         const maxTokens = parseInt($('#cbf-max-tokens').val(), 10);
         $('#cbf-token-count').css('color', estimatedTokens > maxTokens ? 'red' : 'green');
     }
