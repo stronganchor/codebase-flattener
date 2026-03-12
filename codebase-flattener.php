@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Codebase Flattener
  * Plugin URI: https://github.com/yourusername/codebase-flattener
- * Description: Flatten GitHub repositories into AI-ready prompts with selective file inclusion
+ * Description: DEPRECATED. Flatten GitHub repositories into AI-ready prompts with selective file inclusion.
  * Version: 1.0.0
  * Author: Your Name
  * License: GPL v2 or later
@@ -16,6 +16,15 @@ if (!defined('ABSPATH')) {
 // Define plugin constants
 define('CBF_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('CBF_PLUGIN_PATH', plugin_dir_path(__FILE__));
+
+add_action('admin_notices', 'cbf_deprecated_notice');
+function cbf_deprecated_notice() {
+    if (!current_user_can('manage_options')) {
+        return;
+    }
+
+    echo '<div class="notice notice-warning"><p><strong>Codebase Flattener is deprecated.</strong> Do not deploy it on new sites or depend on further maintenance.</p></div>';
+}
 
 // Admin menu
 add_action('admin_menu', 'cbf_add_admin_menu');
@@ -168,11 +177,16 @@ END CUSTOM INSTRUCTIONS</textarea>
 
 // AJAX handler for GitHub API requests
 add_action('wp_ajax_cbf_github_api', 'cbf_handle_github_api');
+function cbf_current_user_can_manage() {
+    return current_user_can('manage_options');
+}
+
 function cbf_handle_github_api() {
-    // Verify nonce
-    if (!wp_verify_nonce($_POST['nonce'], 'cbf_nonce')) {
-        wp_die('Security check failed');
+    if (!cbf_current_user_can_manage()) {
+        wp_send_json_error('Unauthorized', 403);
     }
+
+    check_ajax_referer('cbf_nonce', 'nonce');
 
     $action_type = sanitize_text_field($_POST['action_type']);
     $repo_url = sanitize_text_field($_POST['repo_url']);
@@ -255,9 +269,11 @@ function cbf_handle_github_api() {
 // Save/Load recent repos
 add_action('wp_ajax_cbf_save_recent', 'cbf_save_recent_repo');
 function cbf_save_recent_repo() {
-    if (!wp_verify_nonce($_POST['nonce'], 'cbf_nonce')) {
-        wp_die('Security check failed');
+    if (!cbf_current_user_can_manage()) {
+        wp_send_json_error('Unauthorized', 403);
     }
+
+    check_ajax_referer('cbf_nonce', 'nonce');
 
     $repo_url = sanitize_text_field($_POST['repo_url']);
     $recent = get_option('cbf_recent_repos', array());
@@ -273,6 +289,12 @@ function cbf_save_recent_repo() {
 
 add_action('wp_ajax_cbf_get_recent', 'cbf_get_recent_repos');
 function cbf_get_recent_repos() {
+    if (!cbf_current_user_can_manage()) {
+        wp_send_json_error('Unauthorized', 403);
+    }
+
+    check_ajax_referer('cbf_nonce', 'nonce');
+
     $recent = get_option('cbf_recent_repos', array());
     wp_send_json_success($recent);
 }
