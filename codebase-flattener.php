@@ -3,7 +3,7 @@
  * Plugin Name: Codebase Flattener
  * Plugin URI: https://github.com/yourusername/codebase-flattener
  * Description: DEPRECATED. Flatten GitHub repositories into AI-ready prompts with selective file inclusion.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Your Name
  * License: GPL v2 or later
  */
